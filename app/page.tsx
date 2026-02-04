@@ -1,65 +1,209 @@
-import Image from "next/image";
+"use client";
+import { thaana_keyMap } from "@/lib/thaana-utils";
+import { cn, generateText } from "@/lib/utils";
+import { ChevronDown, RefreshCcw } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+
+type statusEnum = "pending" | "correct" | "incorrect" | "corrected" | "active";
+
+interface charObj {
+   char: string;
+   status: statusEnum;
+}
+
+interface wordObj {
+   chars: charObj[];
+   status: statusEnum;
+}
+
+function genGameData(wordList: string[]): wordObj[] {
+   return wordList.map((word) => ({
+      chars: word.split("").map((ch) => ({ char: ch, status: "pending" })),
+      status: "pending",
+   }));
+}
 
 export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+   const [wordList, setWordList] = useState<wordObj[]>([]);
+   const [wordIdx, setWordIdx] = useState(0);
+   const [charIdx, setCharIdx] = useState(0);
+   const [currentValue, setCurrentValue] = useState("");
+
+   const startNewGame = useCallback(() => {
+      setWordList(genGameData(generateText(30)));
+      setWordIdx(0);
+      setCharIdx(0);
+      setCurrentValue("");
+   }, []);
+
+   useEffect(() => {
+      startNewGame();
+   }, [startNewGame]);
+
+   const handleOnKeydown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" || e.key === "Tab") return;
+      e.preventDefault();
+
+      if (!wordList[wordIdx]) return;
+
+      const activeWord = wordList[wordIdx];
+      const targetChar = activeWord.chars[charIdx]?.char;
+
+      if (e.key === "Backspace") {
+         if (charIdx > 0) {
+            const newCharIdx = charIdx - 1;
+            setCharIdx(newCharIdx);
+            setCurrentValue((prev) => prev.slice(0, -1));
+
+            setWordList((prev) =>
+               prev.map((word, wIdx) => {
+                  if (wIdx !== wordIdx) return word;
+
+                  return {
+                     ...word,
+                     chars: word.chars.map((ch, cIdx) => {
+                        if (cIdx !== newCharIdx) return ch;
+                        return {
+                           ...ch,
+                           status: "pending",
+                        };
+                     }),
+                  };
+               }),
+            );
+         }
+         return;
+      }
+
+      //TODO: Space logic
+      if (e.key === " ") {
+         const allChCorrect = activeWord.chars.every(
+            (ch) => ch.status === "correct",
+         );
+
+         if (allChCorrect && charIdx === activeWord.chars.length) {
+            setWordList((prev) =>
+               prev.map((word, wIdx) => {
+                  if (wIdx !== wordIdx) return word;
+                  return {
+                     ...word,
+                     status: "correct",
+                  };
+               }),
+            );
+            setWordIdx((prev) => prev + 1);
+            setCharIdx(0);
+            setCurrentValue("");
+         }
+
+         return;
+      }
+
+      const thaanaChar = thaana_keyMap[e.key];
+      if (!thaanaChar) return;
+
+      if (charIdx >= activeWord.chars.length) return;
+      const isCorrect = thaanaChar === targetChar;
+
+      setWordList((prev) =>
+         prev.map((word, wIdx) => {
+            if (wIdx !== wordIdx) return word;
+
+            return {
+               ...word,
+               status: "active",
+               chars: word.chars.map((ch, cIdx) => {
+                  if (cIdx !== charIdx) return ch;
+
+                  const newStatus =
+                     ch.status === "incorrect" && isCorrect
+                        ? "corrected"
+                        : isCorrect
+                          ? "correct"
+                          : "incorrect";
+
+                  return {
+                     ...ch,
+                     status: newStatus,
+                  };
+               }),
+            };
+         }),
+      );
+
+      setCharIdx((prev) => prev + 1);
+      setCurrentValue((prev) => prev + thaanaChar);
+   };
+
+   useEffect(() => {
+      console.log("Current word:", wordList[wordIdx]);
+      console.log("Char index:", charIdx);
+      console.log("Current value:", currentValue);
+   }, [wordList, wordIdx, charIdx, currentValue]);
+
+   return (
+      <div className="min-h-screen">
+         <header className="p-10 flex justify-between max-w-[90vw] mx-auto w-full">
+            <h1 className="text-4xl font-bold">ދިވެހިޓައިޕް</h1>
+            <button className="flex items-center gap-2 text-xl hover:cursor-pointer transition-colors">
+               <span>އިތުރު</span>
+               <ChevronDown className="h-4 w-4" />
+            </button>
+         </header>
+
+         <main className="flex flex-col h-[calc(100vh-200px)] max-w-[80vw] mx-auto px-4 justify-center items-center">
+            <div className="flex py-5 max-w-[80vw] mx-auto px-4 ">
+               {/* <span className="text-xl">30 WPM</span> */}
+            </div>
+            <div className="text-4xl leading-loose wrap-break-word whitespace-normal">
+               {wordList.map((w, wIndex) => (
+                  <span
+                     key={wIndex}
+                     className={cn({
+                        "underline underline-offset-8":
+                           wIndex === wordIdx || w.status === "active",
+                     })}
+                  >
+                     <span className="opacity-0"> </span>
+                     {w.chars.map((ch, chIndex) => (
+                        <span
+                           key={chIndex}
+                           className={cn({
+                              "text-gray-500": ch.status === "pending",
+                              "text-red-500": ch.status === "incorrect",
+                              "text-gray-100": ch.status === "correct",
+                              "text-orange-400": ch.status === "corrected",
+                           })}
+                        >
+                           {ch.char}
+                        </span>
+                     ))}
+                  </span>
+               ))}
+            </div>
+
+            <div className="flex w-full gap-4 items-center pt-2">
+               <input
+                  type="text"
+                  autoFocus
+                  onKeyDown={handleOnKeydown}
+                  value={currentValue}
+                  placeholder={"މިތާ ލިޔޭ"}
+                  className="w-full border border-zinc-800 px-6 py-4 text-2xl rounded-xl 
+                       focus:outline-none bg-transparent"
+               />
+               <button
+                  onClick={startNewGame}
+                  className="p-5 border border-zinc-800 rounded-xl hover:bg-zinc-800 transition-colors"
+               >
+                  <RefreshCcw className="h-7 w-7" />
+               </button>
+            </div>
+         </main>
+
+         <footer className="fixed bottom-10 w-full text-center text-md text-gray-200/80">
+            <p>footer</p>
+         </footer>
+      </div>
+   );
 }
