@@ -1,19 +1,28 @@
 "use client";
+import ConfigBar from "@/components/ConfigBar";
+import ConfigButton from "@/components/configButton";
+import WordDisplay from "@/components/WordDisplay";
 import { thaana_keyMap } from "@/lib/thaana-utils";
 import { cn, generateText } from "@/lib/utils";
 import { ChevronDown, RefreshCcw } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import StatsBar from "@/components/StatsBar";
 
-type statusEnum = "pending" | "correct" | "incorrect" | "corrected" | "active";
+type statusEnum = "pending" | "correct" | "incorrect";
 
 interface charObj {
    char: string;
    status: statusEnum;
 }
 
-interface wordObj {
+export interface wordObj {
    chars: charObj[];
    status: statusEnum;
+}
+
+export interface Config {
+   mode: "words" | "duration";
+   units: number;
 }
 
 function genGameData(wordList: string[]): wordObj[] {
@@ -29,16 +38,90 @@ export default function Home() {
    const [charIdx, setCharIdx] = useState(0);
    const [currentValue, setCurrentValue] = useState("");
 
-   const startNewGame = useCallback(() => {
+   const [GameState, setGameState] = useState<"FINISHED" | "PlAYING" | "IDLE">(
+      "IDLE",
+   );
+
+   const [timeleft, setTimeleft] = useState(60);
+   const [timeElapsed, settimeElapsed] = useState(0);
+   const [CorrectChars, setCorrectChars] = useState(0);
+
+   const [config, setConfig] = useState<Config>({
+      mode: "words",
+      units: 30,
+   });
+
+   const startNewGame = () => {
       setWordList(genGameData(generateText(30)));
       setWordIdx(0);
       setCharIdx(0);
       setCurrentValue("");
-   }, []);
+
+      //
+      setTimeleft(config.mode == "duration" ? config.units : 0);
+      settimeElapsed(0);
+      setGameState("IDLE");
+      setCorrectChars(0);
+   };
 
    useEffect(() => {
       startNewGame();
-   }, [startNewGame]);
+   }, [config]);
+
+   useEffect(() => {
+      if (GameState != "PlAYING") return;
+
+      let interval = setInterval(() => {
+         settimeElapsed((prev) => prev + 1);
+
+         if (config.mode == "duration") {
+            setTimeleft((prev) => {
+               if (prev <= 1) {
+                  setGameState("FINISHED");
+                  return 0;
+               }
+               return prev - 1;
+            });
+         }
+      }, 1000);
+
+      return () => clearInterval(interval);
+   }, [GameState, timeleft]);
+
+   const editLetter = (Backspace: boolean, isTargerChar?: boolean) => {
+      let count = 0;
+
+      const activeWord = wordList[wordIdx];
+      const currentCharIDX = Backspace ? charIdx - 1 : charIdx;
+      const currentChar = activeWord.chars[currentCharIDX];
+
+      if (isTargerChar && !Backspace) {
+         count = 1;
+      } else if (Backspace && currentChar.status === "correct") {
+         count = -1;
+      }
+
+      setWordList((prev) => {
+         const newWordList = [...prev];
+         const newActiveWord = { ...newWordList[wordIdx] };
+         const targetChar = { ...newActiveWord.chars[currentCharIDX] };
+
+         targetChar.status = Backspace
+            ? "pending"
+            : isTargerChar
+              ? "correct"
+              : "incorrect";
+
+         newActiveWord.chars[currentCharIDX] = targetChar;
+         newWordList[wordIdx] = newActiveWord;
+         return newWordList;
+      });
+
+      if (count !== 0) {
+         setCorrectChars((prev) => prev + count);
+         console.log("Incremented by:", count);
+      }
+   };
 
    const handleOnKeydown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter" || e.key === "Tab") return;
@@ -55,22 +138,7 @@ export default function Home() {
             setCharIdx(newCharIdx);
             setCurrentValue((prev) => prev.slice(0, -1));
 
-            setWordList((prev) =>
-               prev.map((word, wIdx) => {
-                  if (wIdx !== wordIdx) return word;
-
-                  return {
-                     ...word,
-                     chars: word.chars.map((ch, cIdx) => {
-                        if (cIdx !== newCharIdx) return ch;
-                        return {
-                           ...ch,
-                           status: "pending",
-                        };
-                     }),
-                  };
-               }),
-            );
+            editLetter(true);
          }
          return;
       }
@@ -82,21 +150,15 @@ export default function Home() {
          );
 
          if (allChCorrect && charIdx === activeWord.chars.length) {
-            setWordList((prev) =>
-               prev.map((word, wIdx) => {
-                  if (wIdx !== wordIdx) return word;
-                  return {
-                     ...word,
-                     status: "correct",
-                  };
-               }),
-            );
-            setWordIdx((prev) => prev + 1);
-            setCharIdx(0);
+            if (wordIdx != wordList.length - 1) {
+               setWordIdx((prev) => prev + 1);
+               setCharIdx(0);
+               setCurrentValue("");
+               return;
+            }
             setCurrentValue("");
+            setGameState("FINISHED");
          }
-
-         return;
       }
 
       const thaanaChar = thaana_keyMap[e.key];
@@ -105,41 +167,12 @@ export default function Home() {
       if (charIdx >= activeWord.chars.length) return;
       const isCorrect = thaanaChar === targetChar;
 
-      setWordList((prev) =>
-         prev.map((word, wIdx) => {
-            if (wIdx !== wordIdx) return word;
+      editLetter(false, isCorrect);
 
-            return {
-               ...word,
-               status: "active",
-               chars: word.chars.map((ch, cIdx) => {
-                  if (cIdx !== charIdx) return ch;
-
-                  const newStatus =
-                     ch.status === "incorrect" && isCorrect
-                        ? "corrected"
-                        : isCorrect
-                          ? "correct"
-                          : "incorrect";
-
-                  return {
-                     ...ch,
-                     status: newStatus,
-                  };
-               }),
-            };
-         }),
-      );
-
+      if (GameState == "IDLE") setGameState("PlAYING");
       setCharIdx((prev) => prev + 1);
       setCurrentValue((prev) => prev + thaanaChar);
    };
-
-   useEffect(() => {
-      console.log("Current word:", wordList[wordIdx]);
-      console.log("Char index:", charIdx);
-      console.log("Current value:", currentValue);
-   }, [wordList, wordIdx, charIdx, currentValue]);
 
    return (
       <div className="min-h-screen">
@@ -152,35 +185,16 @@ export default function Home() {
          </header>
 
          <main className="flex flex-col h-[calc(100vh-200px)] max-w-[80vw] mx-auto px-4 justify-center items-center">
-            <div className="flex py-5 max-w-[80vw] mx-auto px-4 ">
-               {/* <span className="text-xl">30 WPM</span> */}
-            </div>
-            <div className="text-4xl leading-loose wrap-break-word whitespace-normal">
-               {wordList.map((w, wIndex) => (
-                  <span
-                     key={wIndex}
-                     className={cn({
-                        "underline underline-offset-8":
-                           wIndex === wordIdx || w.status === "active",
-                     })}
-                  >
-                     <span className="opacity-0"> </span>
-                     {w.chars.map((ch, chIndex) => (
-                        <span
-                           key={chIndex}
-                           className={cn({
-                              "text-gray-500": ch.status === "pending",
-                              "text-red-500": ch.status === "incorrect",
-                              "text-gray-100": ch.status === "correct",
-                              "text-orange-400": ch.status === "corrected",
-                           })}
-                        >
-                           {ch.char}
-                        </span>
-                     ))}
-                  </span>
-               ))}
-            </div>
+            {GameState != "IDLE" ? (
+               <StatsBar
+                  correctChars={CorrectChars}
+                  timeElapsed={timeElapsed}
+               />
+            ) : (
+               <ConfigBar config={config} setConfig={setConfig} />
+            )}
+
+            <WordDisplay wordIdx={wordIdx} wordList={wordList} />
 
             <div className="flex w-full gap-4 items-center pt-2">
                <input
@@ -188,13 +202,21 @@ export default function Home() {
                   autoFocus
                   onKeyDown={handleOnKeydown}
                   value={currentValue}
-                  placeholder={"މިތާ ލިޔޭ"}
-                  className="w-full border border-zinc-800 px-6 py-4 text-2xl rounded-xl 
+                  disabled={GameState == "FINISHED"}
+                  placeholder={"މިތާ ލިޔޭ..."}
+                  className="w-full border border-zinc-800 px-6 py-4 text-4xl rounded-xl  
                        focus:outline-none bg-transparent"
                />
                <button
                   onClick={startNewGame}
-                  className="p-5 border border-zinc-800 rounded-xl hover:bg-zinc-800 transition-colors"
+                  className={cn(
+                     "p-6 border border-zinc-800 rounded-xl hover:bg-zinc-800 transition-colors",
+                     {
+                        "animate-bounce from-blue-500 via-blue-600 to-blue-700 bg-gradient-to-br":
+                           GameState == "FINISHED",
+                     },
+                  )}
+                  // className="p-5 border border-zinc-800 rounded-xl hover:bg-zinc-800 transition-colors"
                >
                   <RefreshCcw className="h-7 w-7" />
                </button>
@@ -202,7 +224,9 @@ export default function Home() {
          </main>
 
          <footer className="fixed bottom-10 w-full text-center text-md text-gray-200/80">
-            <p>footer</p>
+            <div className="text-4xl animate-bounce ">
+               {GameState == "FINISHED" ? "ނިމުނީ" : ""}
+            </div>
          </footer>
       </div>
    );
